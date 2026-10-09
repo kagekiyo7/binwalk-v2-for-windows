@@ -8,15 +8,13 @@ import binwalk.core.common
 from binwalk.core.compat import str2bytes, bytes2str
 from binwalk.core.module import Module, Option, Kwarg
 
-try:
-    import numpy as np
-except ImportError:
-    pass
-try:
-    from numba import njit
-except ImportError:
-    def njit(func):
-        return func
+# numpy / numba / matplotlib are intentionally NOT used in this build.
+# Entropy is always computed with pure python and no graph is plotted.
+np = None
+
+
+def njit(func):
+    return func
 
 class Entropy(Module):
 
@@ -99,10 +97,7 @@ class Entropy(Module):
         if self.use_zlib:
             self.algorithm = self.gzip
         else:
-            if 'numpy' in sys.modules:
-                self.algorithm = self.shannon_numpy
-            else:
-                self.algorithm = self.shannon
+            self.algorithm = self.shannon
 
         # Get a list of all other module's results to mark on the entropy graph
         for (module, obj) in self.modules.items():
@@ -130,25 +125,16 @@ class Entropy(Module):
                 self.block_size = None
 
     def _entropy_sigterm_handler(self, *args):
-        print ("Fuck it all.")
+        pass
 
     def run(self):
         self._run()
 
     def _run(self):
-        # Sanity check and warning if matplotlib isn't found
-        if self.do_plot:
-            try:
-                # If we're saving the plot to a file, configure matplotlib
-                # to use the Agg back-end. This does not require a X server,
-                # allowing users to generate plot files on headless systems.
-                if self.save_plot:
-                    import matplotlib as mpl
-                    mpl.use('Agg')
-                import matplotlib.pyplot as plt
-            except ImportError as e:
-                binwalk.core.common.warning("Failed to import matplotlib module, visual entropy graphing will be disabled")
-                self.do_plot = False
+        # Graph plotting needs matplotlib, which this build does not use.
+        if self.save_plot:
+            binwalk.core.common.warning("Entropy graph plotting is disabled in this build; only the numeric entropy results are shown.")
+        self.do_plot = False
 
         for fp in iter(self.next_file, None):
 

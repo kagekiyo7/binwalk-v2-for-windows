@@ -239,13 +239,11 @@ class Display(object):
 
         if self.fit_to_screen:
             try:
-                import fcntl
-                import struct
-                import termios
-
-                # Get the terminal window width
-                hw = struct.unpack('hh', fcntl.ioctl(1, termios.TIOCGWINSZ, '1234'))
-                self.SCREEN_WIDTH = self.HEADER_WIDTH = hw[1]
+                # Works on Windows consoles as well as on POSIX terminals
+                import shutil
+                width = shutil.get_terminal_size(fallback=(0, 0)).columns
+                if width > 0:
+                    self.SCREEN_WIDTH = self.HEADER_WIDTH = width
             except KeyboardInterrupt as e:
                 raise e
             except Exception:

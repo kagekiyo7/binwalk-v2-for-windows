@@ -1,5 +1,3 @@
-import os
-import subprocess
 import binwalk.core.common
 import binwalk.core.plugin
 
@@ -7,58 +5,14 @@ class CPIOPlugin(binwalk.core.plugin.Plugin):
 
     '''
     Ensures that ASCII CPIO archive entries only get extracted once.
-    Also provides an internal CPIO extraction wrapper around the Unix
-    cpio utility since no output directory can be provided to it directly.
+    The actual extraction is performed by 7-Zip (see config/extract.conf).
     '''
-    CPIO_OUT_DIR = "cpio-root"
     CPIO_HEADER_SIZE = 110
 
     MODULES = ['Signature']
 
     def init(self):
         self.consecutive_hits = 0
-
-        if self.module.extractor.enabled:
-            self.module.extractor.add_rule(regex="^ascii cpio archive",
-                                           extension="cpio",
-                                           cmd=self.extractor,
-                                           recurse=False)       # Most CPIO archives are file systems, so don't recurse into the extracted contents
-
-    def extractor(self, fname):
-        result = None
-        fname = os.path.abspath(fname)
-        out_dir_base_name = os.path.join(os.path.dirname(fname), self.CPIO_OUT_DIR)
-        out_dir = binwalk.core.common.unique_file_name(out_dir_base_name)
-
-        try:
-            fpin = open(fname, "rb")
-            fperr = open(os.devnull, "rb")
-            os.mkdir(out_dir)
-        except OSError:
-            return False
-
-        try:
-            curdir = os.getcwd()
-            os.chdir(out_dir)
-        except OSError:
-            return False
-
-        try:
-            result = subprocess.call(['cpio', '-d', '-i', '--no-absolute-filenames'],
-                                     stdin=fpin,
-                                     stderr=fperr,
-                                     stdout=fperr)
-        except OSError:
-            result = -1
-
-        os.chdir(curdir)
-        fpin.close()
-        fperr.close()
-
-        if result in [0, 2]:
-            return True
-        else:
-            return False
 
     def pre_scan(self):
         # Be sure to re-set this at the beginning of every scan

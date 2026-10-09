@@ -719,7 +719,14 @@ class Modules(object):
 
         user_modules = binwalk.core.settings.Settings().user.modules
 
-        for file_name in os.listdir(user_modules):
+        # The per-user modules directory may not exist / may not be creatable
+        # (e.g. read-only or missing user profile); that is not an error.
+        try:
+            user_module_files = os.listdir(user_modules) if user_modules else []
+        except OSError:
+            user_module_files = []
+
+        for file_name in user_module_files:
             if not file_name.endswith('.py'):
                 continue
             module_name = file_name[:-3]
@@ -729,6 +736,7 @@ class Modules(object):
                 raise e
             except Exception as e:
                 binwalk.core.common.warning("Error loading module '%s': %s" % (file_name, str(e)))
+                continue
 
             for (name, module) in inspect.getmembers(user_module):
                 if inspect.isclass(module) and hasattr(module, attribute):

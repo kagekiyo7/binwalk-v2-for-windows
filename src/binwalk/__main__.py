@@ -23,6 +23,37 @@ for _module_path in [
 import binwalk
 import binwalk.modules
 
+
+def _prepare_windows_console():
+    '''
+    Windows specific start-up fixes:
+
+      * The console code page (e.g. cp932) can not represent every character
+        that may appear in file names / signature descriptions found inside
+        firmware images; never crash with UnicodeEncodeError because of it.
+      * cmd.exe / PowerShell do not expand wildcards (binwalk *.bin), so do it here.
+    '''
+    if os.name != 'nt':
+        return
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors='replace')
+        except Exception:
+            pass
+
+    import glob
+    expanded = [sys.argv[0]]
+    for arg in sys.argv[1:]:
+        if not arg.startswith('-') and any(c in arg for c in '*?['):
+            matches = sorted(m for m in glob.glob(arg) if os.path.isfile(m))
+            if matches:
+                expanded.extend(matches)
+                continue
+        expanded.append(arg)
+    sys.argv = expanded
+
+
 def runme():
     with binwalk.Modules() as modules:
         try:
@@ -45,6 +76,8 @@ def runme():
             sys.exit(3)
 
 def main():
+    _prepare_windows_console()
+
     try:
         # Special options for profiling the code. For debug use only.
         if '--profile' in sys.argv:

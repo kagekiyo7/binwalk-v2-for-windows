@@ -22,6 +22,21 @@ def load_source(modname, filename):
     return module
 
 
+# Built-in (system) plugins that are disabled in this build.
+#
+# Policy of this build: extraction is done through 7-Zip (config/extract.conf),
+# EXCEPT where the original binwalk already extracted with the python standard
+# library or its own code (gzip, lzma/xz, zlib, raw deflate/lzma, Arcadyan,
+# D-Link ROMFS, PFS, Windows CE); those plugins stay enabled and run BEFORE the
+# 7-Zip rules (7-Zip is the fallback when the python extractor fails).
+#
+# Only plugins that need third party libraries are disabled:
+DISABLED_SYSTEM_PLUGINS = (
+    'hilink',           # needs pycrypto (Crypto.Cipher.DES)
+    'pgp',              # needs python-gnupg / gpg
+)
+
+
 class Plugin(object):
 
     '''
@@ -188,9 +203,18 @@ class Plugins(object):
                 plugins[key]['path'] = self.settings.system.plugins
 
             if plugins[key]['path']:
-                for file_name in os.listdir(plugins[key]['path']):
+                try:
+                    plugin_files = os.listdir(plugins[key]['path'])
+                except OSError:
+                    # e.g. per-user plugin directory missing / not creatable
+                    plugin_files = []
+
+                for file_name in plugin_files:
                     if file_name.endswith(self.MODULE_EXTENSION):
                         module = file_name[:-len(self.MODULE_EXTENSION)]
+
+                        if key == 'system' and module in DISABLED_SYSTEM_PLUGINS:
+                            continue
 
                         try:
                             plugin = load_source(module, os.path.join(plugins[key]['path'], file_name))

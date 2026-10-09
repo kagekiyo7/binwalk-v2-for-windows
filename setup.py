@@ -5,7 +5,11 @@ import sys
 import shutil
 import subprocess
 from setuptools import setup, Command, find_packages
-from distutils.dir_util import remove_tree
+
+
+def remove_tree(path):
+    # distutils was removed in Python 3.12; shutil does the same job.
+    shutil.rmtree(path)
 
 MODULE_NAME = "binwalk"
 MODULE_VERSION = "2.4.3"
@@ -26,22 +30,9 @@ except Exception:
 
 
 def which(command):
-    # /usr/local/bin is usually the default install path, though it may not be in $PATH
-    usr_local_bin = os.path.sep.join([os.path.sep, 'usr', 'local', 'bin', command])
-
-    try:
-        location = subprocess.Popen(
-            ["which", command],
-            shell=False, stdout=subprocess.PIPE).communicate()[0].strip()
-    except KeyboardInterrupt as e:
-        raise e
-    except Exception as e:
-        pass
-
-    if not location and os.path.exists(usr_local_bin):
-        location = usr_local_bin
-
-    return location
+    # shutil.which works on Windows as well (the old implementation relied on
+    # the Unix "which" command).
+    return shutil.which(command)
 
 
 def find_binwalk_module_paths():
@@ -268,16 +259,20 @@ with io.open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 setup(
     name=MODULE_NAME,
     version=MODULE_VERSION,
-    description="Firmware analysis tool",
+    description="Firmware analysis tool (7-Zip based extraction, Windows friendly build)",
     long_description=long_description,
     long_description_content_type='text/markdown',
     author="Craig Heffner",
     url="https://github.com/OSPG/%s" % MODULE_NAME,
     requires=[],
-    python_requires=">=3",
+    python_requires=">=3.8",
     package_dir={"": "src"},
     packages=find_packages("src"),
     include_package_data=True,
+    # config/ (extract.conf), magic/ (signatures) and the bundled 7-Zip folder
+    # must be installed next to the python code.
+    package_data={"binwalk": ["config/*", "magic/*", "7-Zip/*"]},
+    zip_safe=False,
     entry_points={
         'console_scripts': ['binwalk=binwalk.__main__:main'],
     },

@@ -35,30 +35,36 @@ class LZMA(object):
         self.build_dictionaries()
         self.build_headers()
 
-        # Add an extraction rule
+        # Add an extraction rule. The extractor below builds a proper LZMA header
+        # in front of the raw stream and then hands the result to the normal
+        # "lzma compressed data" rules (python lzma module first, 7-Zip fallback).
         if self.module.extractor.enabled:
-            self.module.extractor.add_rule(regex='^%s' % self.DESCRIPTION.lower(), extension="7z", cmd=self.extractor)
+            self.module.extractor.add_rule(regex='^%s' % self.DESCRIPTION.lower(), extension="lzma", cmd=self.extractor)
 
     def extractor(self, file_name):
         # Open and read the file containing the raw compressed data.
         # This is not terribly efficient, especially for large files...
-        compressed_data = binwalk.core.common.BlockFile(file_name).read()
+        with binwalk.core.common.BlockFile(file_name) as fp:
+            compressed_data = str2bytes(fp.read())
 
         # Re-run self.decompress to detect the properties for this compressed
         # data (stored in self.properties)
-        if self.decompress(compressed_data[:self.BLOCK_SIZE]):
-            # Build an LZMA header on top of the raw compressed data and write it back to disk.
-            # Header consists of the detected properties values, the largest possible dictionary size,
-            # and a fake output file size field.
-            header = chr(self.properties) + \
-                self.dictionaries[-1] + ("\xFF" * 8)
-            binwalk.core.common.BlockFile(file_name, "wb").write(header + compressed_data)
+        if not self.decompress(bytes2str(compressed_data[:self.BLOCK_SIZE])):
+            return False
 
-            # Try to extract it with all the normal lzma extractors until one
-            # works
-            for exrule in self.module.extractor.match("lzma compressed data"):
-                if self.module.extractor.execute(exrule['cmd'], file_name) == True:
-                    break
+        # Build an LZMA header on top of the raw compressed data and write it back to disk.
+        # Header consists of the detected properties values, the largest possible dictionary size,
+        # and a fake output file size field.
+        header = str2bytes(chr(self.properties) + self.dictionaries[-1] + ("\xFF" * 8))
+        with binwalk.core.common.BlockFile(file_name, "wb") as fp:
+            fp.write(header + compressed_data)
+
+        # Try to extract it with all the normal lzma extractors until one works
+        for exrule in self.module.extractor.match("lzma compressed data"):
+            if self.module.extractor.execute(exrule['cmd'], file_name) == True:
+                return True
+
+        return False
 
     def build_property(self, pb, lp, lc):
         prop = (((pb * 5) + lp) * 9) + lc
@@ -72,9 +78,9 @@ class LZMA(object):
         if prop > self.MAX_PROP:
             return None
 
-        pb = prop / (9 * 5)
+        pb = prop // (9 * 5)
         prop -= pb * 9 * 5
-        lp = prop / 9
+        lp = prop // 9
         lc = prop - lp * 9
 
         return (pb, lp, lc)
@@ -165,13 +171,13 @@ class Deflate(object):
     def __init__(self, module):
         self.module = module
 
-        # Add an extraction rule
+        # Add an extraction rule (python zlib; 7-Zip cannot open raw deflate streams)
         if self.module.extractor.enabled:
             self.module.extractor.add_rule(regex='^%s' % self.DESCRIPTION.lower(), extension="deflate", cmd=self.extractor)
 
     def extractor(self, file_name):
-        in_data = ""
-        out_data = ""
+        in_data = b""
+        out_data = b""
         retval = False
         out_file = os.path.splitext(file_name)[0]
 
@@ -181,11 +187,11 @@ class Deflate(object):
                 if not data or dlen == 0:
                     break
                 else:
-                    in_data += data[:dlen]
+                    in_data += str2bytes(data[:dlen])
 
                 try:
-                    out_data = zlib.decompress(str2bytes(in_data), -15)
-                    with binwalk.core.common.BlockFile(out_file, 'w') as fp_out:
+                    out_data = zlib.decompress(in_data, -15)
+                    with binwalk.core.common.BlockFile(out_file, 'wb') as fp_out:
                         fp_out.write(out_data)
                     retval = True
                     break

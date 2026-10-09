@@ -1,8 +1,5 @@
-# Don't load the disasm module if the capstone module can't be found
-try:
-    from binwalk.modules.disasm import Disasm
-except ImportError:
-    pass
+# The disassembly module (-Y / --disasm) needs the third party "capstone"
+# library. It is intentionally not loaded in this build (no extra dependencies).
 
 # Don't load the compression module if the lzma module can't be found
 try:

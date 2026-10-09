@@ -11,11 +11,12 @@ try:
 except ImportError:
     pwd = None
 
+import sys
 import stat
-import shlex
 import tempfile
 import subprocess
 import binwalk.core.common
+import binwalk.core.sevenzip as sevenzip
 from binwalk.core.exceptions import ModuleException, ExtractNotAvail
 from binwalk.core.module import Module, Option, Kwarg
 from binwalk.core.common import file_size, file_md5, unique_file_name, BlockFile
@@ -143,6 +144,16 @@ class Extractor(Module):
         self.runas_uid = None
         self.runas_gid = None
 
+        # All extraction is done through the bundled 7-Zip command line tool.
+        # Fail early (and clearly) if it is missing instead of silently
+        # extracting nothing.
+        if self.enabled is True and self.run_extractors and sevenzip.find_7z() is None:
+            msg = ("7-Zip was not found. Place the 7-Zip files (7z.exe / 7z.dll) in '%s' "
+                   "or set the %s environment variable to the path of 7z.exe." %
+                   (sevenzip.bundled_dir(), sevenzip.ENV_VAR))
+            binwalk.core.common.error(msg)
+            raise ModuleException(msg)
+
         if self.enabled is True and pwd:
             if self.runas_user is None:
                 # Get some info about the current user we're running under
@@ -174,7 +185,7 @@ class Extractor(Module):
             if not os.path.exists(self.directory):
                 os.makedirs(self.directory)
         else:
-            self.directory = os.getcwd()
+            self.directory = os.path.realpath(os.getcwd())
         # Key value pairs of input file path and output extraction path
         self.output = {}
         # Number of extracted files
@@ -332,8 +343,11 @@ class Extractor(Module):
                 # Update the last directory listing for the next time we
                 # extract a file to this same output directory
                 self.last_directory_listing[extraction_directory] = directory_listing
-            elif self.enabled:
-                raise ExtractNotAvail("either no utility was found or it's unimplemented")
+            else:
+                # No 7-Zip extraction rule exists for this file type (i.e. 7-Zip
+                # cannot handle it), so it is skipped: nothing is carved, no
+                # output directory is created and no warning is shown.
+                binwalk.core.common.debug("Skipping '%s' @0x%X: not supported by 7-Zip" % (r.description, r.offset))
 
     def append_rule(self, r):
         self.extract_rules.append(r.copy())
@@ -491,7 +505,7 @@ class Extractor(Module):
         '''
         try:
             # Process each line from the extract file, ignoring comments
-            with open(fname, 'r') as f:
+            with open(fname, 'r', encoding='utf-8', errors='replace') as f:
                 for rule in f.readlines():
                     self.add_rule(rule.split(self.COMMENT_DELIM, 1)[0])
         except KeyboardInterrupt as e:
@@ -964,16 +978,22 @@ class Extractor(Module):
         return (retval, '&&'.join(command_list))
 
     def shell_call(self, command):
-        # If not in debug mode, redirect output to /dev/null
+        # If not in debug mode, redirect output to /dev/null (NUL on Windows)
         if not binwalk.core.common.DEBUG:
             tmp = subprocess.DEVNULL
         else:
             tmp = None
 
+        # Split the command line into arguments (Windows safe, see sevenzip.py)
+        # and resolve the "%7z" placeholder to the bundled 7-Zip executable.
+        args = sevenzip.resolve_placeholder(sevenzip.split_command(command))
+        if args is None:
+            raise OSError("7-Zip executable not found in '%s'" % sevenzip.bundled_dir())
+
         # If a run-as user is not the current user, we'll need to switch privileges to that user account
         if pwd and self.runas_uid != os.getuid():
             binwalk.core.common.debug("Switching privileges to %s (%d:%d)" % (self.runas_user, self.runas_uid, self.runas_gid))
-            
+
             # Fork a child process
             child_pid = os.fork()
             if child_pid == 0:
@@ -984,11 +1004,13 @@ class Extractor(Module):
         else:
             # child_pid of None indicates that no os.fork() occured
             child_pid = None
-            
+
         # If we're the child, or there was no os.fork(), execute the command
         if child_pid in [0, None]:
-            binwalk.core.common.debug("subprocess.call(%s, stdout=%s, stderr=%s)" % (command, str(tmp), str(tmp)))
-            rval = subprocess.call(shlex.split(command), stdout=tmp, stderr=tmp)
+            binwalk.core.common.debug("subprocess.call(%s, stdout=%s, stderr=%s)" % (str(args), str(tmp), str(tmp)))
+            # stdin is closed so that 7-Zip can never block on a password
+            # prompt (e.g. encrypted zip) while binwalk is running.
+            rval = subprocess.call(args, stdin=subprocess.DEVNULL, stdout=tmp, stderr=tmp)
 
         # A true child process should exit with the subprocess exit value
         if child_pid == 0:

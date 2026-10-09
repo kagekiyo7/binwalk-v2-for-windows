@@ -877,7 +877,7 @@ class Magic(object):
         Returns None.
         '''
         # Magic files must be ASCII, else encoding issues can arise.
-        fp = open(fname, "r")
+        fp = open(fname, "r", encoding="utf-8", errors="replace")
         lines = fp.readlines()
         self.parse(lines)
         fp.close()

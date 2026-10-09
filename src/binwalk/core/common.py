@@ -95,7 +95,7 @@ def file_size(filename):
     Returns the size of the file.
     '''
     # Using open/lseek works on both regular files and block devices
-    fd = os.open(filename, os.O_RDONLY)
+    fd = os.open(filename, os.O_RDONLY | getattr(os, 'O_BINARY', 0))
     try:
         return os.lseek(fd, 0, os.SEEK_END)
     except KeyboardInterrupt as e:

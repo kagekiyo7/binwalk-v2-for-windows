@@ -67,7 +67,11 @@ class Settings(object):
 
         def list_files(dir_path):
             # Ignore hidden dotfiles.
-            return [os.path.join(dir_path, x) for x in os.listdir(dir_path) if not x.startswith('.')]
+            try:
+                return [os.path.join(dir_path, x) for x in os.listdir(dir_path) if not x.startswith('.')]
+            except OSError:
+                # e.g. the per-user config directory could not be created
+                return []
 
         if not system_only:
             user_dir = os.path.join(self.user_dir, self.BINWALK_USER_DIR, self.BINWALK_MAGIC_DIR)
